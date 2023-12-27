@@ -1,6 +1,6 @@
 package module2;
 
-public class Main {
+public class IslandSimulation {
     public static void main(String[] args) {
 
     }
