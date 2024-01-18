@@ -1,63 +1,110 @@
 package module2;
-import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+
+import module2.config.MapConfig;
+import module2.manager.ConfigManager;
+import module2.model.Fauna;
+import module2.model.NatureObject;
+import module2.model.Cell;
+import module2.model.Field;
+import module2.model.enums.LiveableType;
+import module2.service.WorldGenerator;
+import module2.service.coordinator.FoodCoordinator;
+import module2.service.coordinator.MovementCoordinator;
+import module2.service.coordinator.PlantCoordinator;
+import module2.service.coordinator.ReproduceCoordinator;
+import lombok.AccessLevel;
+import lombok.experimental.FieldDefaults;
+
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
+@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class Island {
-    private final Location[][] locations;
-    private final ExecutorService executor;
-    private final Random random;
 
-    public Island(int width, int height) {
-        this.locations = new Location[width][height];
-        initializeLocations();
-        this.executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        this.random = new Random();
-    }
+    MapConfig mapConfig = ConfigManager.getConfigManager().getMapConfig();
+    WorldGenerator worldGenerator = new WorldGenerator();
+    FoodCoordinator foodCoordinator = new FoodCoordinator();
+    ReproduceCoordinator reproduceCoordinator = new ReproduceCoordinator();
+    MovementCoordinator movementCoordinator = new MovementCoordinator();
+    PlantCoordinator plantCoordinator = new PlantCoordinator();
 
-    private void initializeLocations() {
-        for (int i = 0; i < locations.length; i++) {
-            for (int j = 0; j < locations[i].length; j++) {
-                locations[i][j] = new Location();
+    public void start() {
+        Field field = initField(mapConfig);
+        worldGenerator.generateWorld(field);
+
+        Runnable scheduleTask = () -> {
+
+            plantCoordinator.grow(field);
+
+            Map<LiveableType, Long> collect = field.getCells()
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .flatMap(cell -> cell.getListOfEntity().stream())
+                    .collect(Collectors.groupingBy(NatureObject::getLiveableType, Collectors.counting()));
+
+            for (Map.Entry<LiveableType, Long> entry : collect.entrySet()) {
+                System.out.println(entry.getKey().name() + " " + entry.getValue());
             }
-        }
-    }
+            System.out.println();
+        };
 
-    public void simulateOneDay() {
-        for (int i = 0; i < locations.length; i++) {
-            for (int j = 0; j < locations[i].length; j++) {
-                Runnable locationTask = new LocationTask(locations[i][j]);
-                executor.execute(locationTask);
-            }
-        }
-        executor.shutdown();
-    }
+        ExecutorService executorService = Executors.newCachedThreadPool();
 
-    private class LocationTask implements Runnable {
-        private final Location location;
+        ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r);
+            thread.setDaemon(true);
+            return thread;
+        });
 
-        public LocationTask(Location location) {
-            this.location = location;
-        }
-
-        @Override
-        public void run() {
-            List<Animal> animals = location.getAnimals();
-            List<Plant> plants = location.getPlants();
-
-            // Логіка взаємодії тварин та рослин у даній локації
-            for (Animal animal : animals) {
-                for (Plant plant : plants) {
-                    if (animal.canEat(plant) && random.nextDouble() < animal.getEatProbability()) {
-                        animal.eat(plant);
-                        location.removePlant(plant);
-                        break;
+        for (List<Cell> cellList : field.getCells()) {
+            Runnable cellTask = () -> {
+                for (Cell cell : cellList) {
+                    List<NatureObject> listOfEntity = cell.getListOfEntity();
+                    for (NatureObject entity : listOfEntity) {
+                        if (entity instanceof Fauna fauna) {
+                            foodCoordinator.eatOnCell(cell, fauna);
+                            reproduceCoordinator.reproduceOnCell(cell, fauna);
+                            movementCoordinator.move(field, cell, fauna);
+                        }
                     }
                 }
-                animal.move(location); // Рух тварини
-                animal.reproduce(); // Розмноження тварини
+            };
+            executorService.submit(cellTask);
+        }
+
+        scheduledExecutorService.scheduleWithFixedDelay(scheduleTask, 5, 15, TimeUnit.SECONDS);
+
+//        field.getCells()
+//                .stream()
+//                .flatMap(Collection::stream)
+//                .parallel()
+//                .forEach(cell -> {
+//                    cell.getListOfEntity().stream()
+//                            .filter(entity -> entity instanceof Fauna)
+//                            .map(entity -> (Fauna) entity)
+//                            .forEach(fauna -> {
+//                                foodCoordinator.eatOnCell(cell, fauna);
+//                                reproduceCoordinator.reproduceOnCell(cell, fauna);
+//                                movementCoordinator.move(field, cell, fauna);
+//                            });
+//                });
+
+        executorService.shutdown();
+    }
+
+    private Field initField(MapConfig mapConfig) {
+        Field field = new Field();
+        for (int i = 0; i < mapConfig.getX(); i++) {
+            field.getCells().add(new ArrayList<>());
+            for (int j = 0; j < mapConfig.getY(); j++) {
+                field.getCells().get(i).add(new Cell(i, j));
             }
         }
+        return field;
     }
+
 }
