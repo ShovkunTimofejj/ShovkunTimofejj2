@@ -78,21 +78,6 @@ public class Island {
 
         scheduledExecutorService.scheduleWithFixedDelay(scheduleTask, 5, 15, TimeUnit.SECONDS);
 
-//        field.getCells()
-//                .stream()
-//                .flatMap(Collection::stream)
-//                .parallel()
-//                .forEach(cell -> {
-//                    cell.getListOfEntity().stream()
-//                            .filter(entity -> entity instanceof Fauna)
-//                            .map(entity -> (Fauna) entity)
-//                            .forEach(fauna -> {
-//                                foodCoordinator.eatOnCell(cell, fauna);
-//                                reproduceCoordinator.reproduceOnCell(cell, fauna);
-//                                movementCoordinator.move(field, cell, fauna);
-//                            });
-//                });
-
         executorService.shutdown();
     }
 
